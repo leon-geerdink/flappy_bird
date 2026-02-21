@@ -36,7 +36,7 @@ PIPE_MIN_Y = 80
 PIPE_MAX_Y = HEIGHT - GROUND_HEIGHT - 80
 MIN_PIPE_DISTANCE = 200
 
-POINTS_PER_LEVEL = 3
+POINTS_PER_LEVEL = 4
 LEVEL_BANNER_DURATION = 120  # frames to show "NEXT LEVEL" banner
 CONFETTI_COLORS = [(255, 50, 50), (50, 255, 50), (50, 100, 255), (255, 255, 50),
                    (255, 100, 200), (50, 255, 255), (255, 150, 30)]
@@ -57,8 +57,10 @@ LLAMA_DARK = (170, 150, 120)
 # Flowers
 FLOWER_COLORS = [(255, 80, 80), (255, 160, 200), (255, 255, 100), (200, 130, 255), (255, 180, 50)]
 STEM_GREEN = (50, 150, 30)
+TREE_TRUNK = (100, 70, 40)
+TREE_GREEN_BASE = (50, 140, 50)
 
-WIN_SCORE = 30
+WIN_SCORE = 40
 GOLD = (255, 215, 0)
 
 
@@ -86,6 +88,7 @@ class GameState:
     won: bool
     flowers: list
     clouds: list
+    trees: list
     level: LevelConfig
     level_banner_timer: int
     confetti: list
@@ -227,9 +230,56 @@ def draw_clouds(screen, clouds, alpha):
         screen.blit(surf, (cx, cy))
 
 
+# --- Trees ---
+
+def make_tree(x):
+    return {"x": float(x), "trunk_h": random.randint(75, 135),
+            "canopy_r": random.randint(38, 60), "green": random.randint(-20, 20)}
+
+
+def generate_trees():
+    return [make_tree(random.randint(10, WIDTH + 100)) for _ in range(8)]
+
+
+def update_trees(trees, speed):
+    for t in trees:
+        t["x"] -= speed
+    trees[:] = [t for t in trees if t["x"] > -50]
+    if not trees or max(t["x"] for t in trees) < WIDTH - 60:
+        trees.append(make_tree(WIDTH + random.randint(10, 60)))
+
+
+def draw_trees(screen, trees, alpha):
+    if alpha <= 0:
+        return
+    for t in trees:
+        tx = int(t["x"])
+        trunk_h = t["trunk_h"]
+        canopy_r = t["canopy_r"]
+        green_off = t["green"]
+        ground_y = HEIGHT - GROUND_HEIGHT
+        trunk_w = 21
+        surf = pygame.Surface((canopy_r * 2 + 4, trunk_h + canopy_r + 4), pygame.SRCALPHA)
+        sw = surf.get_width()
+        # Trunk
+        trunk_color = (*TREE_TRUNK, int(alpha))
+        trunk_x = sw // 2 - trunk_w // 2
+        trunk_top = canopy_r + 2
+        pygame.draw.rect(surf, trunk_color, (trunk_x, trunk_top, trunk_w, trunk_h))
+        # Canopy
+        g = TREE_GREEN_BASE
+        canopy_color = (max(0, min(255, g[0] + green_off)),
+                        max(0, min(255, g[1] + green_off)),
+                        max(0, min(255, g[2] + green_off)),
+                        int(alpha))
+        pygame.draw.circle(surf, canopy_color, (sw // 2, canopy_r + 2), canopy_r)
+        blit_y = ground_y - trunk_h - canopy_r - 2
+        screen.blit(surf, (tx - sw // 2, blit_y))
+
+
 # --- Drawing ---
 
-def draw_background(screen, flowers, score, clouds):
+def draw_background(screen, flowers, score, clouds, trees):
     screen.fill(SKY_BLUE)
 
     # Ground color: gradually turn green between score 10-20
@@ -240,8 +290,8 @@ def draw_background(screen, flowers, score, clouds):
     pygame.draw.rect(screen, ground_col, (0, HEIGHT - GROUND_HEIGHT, WIDTH, GROUND_HEIGHT))
     pygame.draw.line(screen, ground_line_col, (0, HEIGHT - GROUND_HEIGHT), (WIDTH, HEIGHT - GROUND_HEIGHT), 2)
 
-    # Clouds: fade in between score 20-25
-    cloud_alpha = max(0.0, min(1.0, (score - 20) / 5.0)) * 200
+    # Clouds: fade in between score 20-28
+    cloud_alpha = max(0.0, min(1.0, (score - 20) / 8.0)) * 200
     draw_clouds(screen, clouds, cloud_alpha)
 
     fy = HEIGHT - GROUND_HEIGHT
@@ -260,6 +310,10 @@ def draw_background(screen, flowers, score, clouds):
             pygame.draw.circle(screen, color, (px, py), size - 1)
         # Center
         pygame.draw.circle(screen, (255, 220, 50), (fx, center_y), size - 2)
+
+    # Trees: fade in between score 30-38
+    tree_alpha = max(0.0, min(1.0, (score - 30) / 8.0)) * 220
+    draw_trees(screen, trees, tree_alpha)
 
 
 def draw_bird(screen, bird_y, bird_vel, frame_count):
@@ -688,6 +742,7 @@ def reset_game():
         won=False,
         flowers=generate_flowers(),
         clouds=[make_cloud(random.randint(0, WIDTH)) for _ in range(4)],
+        trees=generate_trees(),
         level=get_level(0),
         level_banner_timer=0,
         confetti=[],
@@ -747,6 +802,7 @@ def update_game(state, burp_sound):
     # Update pipes
     update_pipes(state.pipes, state.frame_count, lvl.speed, lvl.spawn)
     update_flowers(state.flowers, lvl.speed)
+    update_trees(state.trees, lvl.speed)
     update_clouds(state.clouds)
 
     # Score
@@ -815,7 +871,7 @@ def main():
 
         # Draw to game surface
         lvl = state.level
-        draw_background(game_surface, state.flowers, state.score, state.clouds)
+        draw_background(game_surface, state.flowers, state.score, state.clouds, state.trees)
         draw_llama(game_surface, state.frame_count)
         draw_confetti(game_surface, state.confetti)
         draw_pipes(game_surface, state.pipes, lvl.gap)
