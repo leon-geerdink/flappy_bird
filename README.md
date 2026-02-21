@@ -18,7 +18,5 @@ pipenv run python birdy_and_llama.py
 
 | Key | Action |
 |---|---|
-| Space / Click | Flap |
-| Enter | Start new game |
-| F11 | Toggle fullscreen |
+| Space / Click | Flap / Restart |
 | Escape | Quit |

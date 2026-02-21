@@ -31,7 +31,6 @@ Key design patterns:
 - **Procedural drawing**: All sprites (bird, llama, pipes, flowers, trees, ice cream, confetti) are drawn with primitive Pygame shapes — no image assets.
 - **Programmatic audio**: `create_burp_sound()` generates a burp WAV at runtime using `array.array` and math — no sound files.
 - **Level progression**: Every 4 points triggers a new level via `get_level(score)`, which interpolates gravity, pipe gap, speed, and spawn rate. Level-ups spawn confetti and play the burp sound.
-- **Fullscreen scaling**: Game renders to a 600x600 surface (`game_surface`), then scales to fit the fullscreen display.
 
 **`create_icon.py`** — Generates `flappy_icon.png` (512x512) by computing RGBA pixels procedurally and encoding as PNG using `struct`/`zlib` (no PIL dependency).
 

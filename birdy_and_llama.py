@@ -92,6 +92,7 @@ class GameState:
     level: LevelConfig
     level_banner_timer: int
     confetti: list
+    death_time: int
 
 
 # --- Audio ---
@@ -657,7 +658,7 @@ def draw_game_over(screen, score, font, small_font):
     score_text = small_font.render(f"Score: {score}", True, WHITE)
     screen.blit(score_text, (WIDTH // 2 - score_text.get_width() // 2, HEIGHT // 2 - 20))
 
-    restart_text = small_font.render("Press ENTER to restart", True, WHITE)
+    restart_text = small_font.render("Tap to restart", True, WHITE)
     screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2 + 30))
 
 
@@ -725,7 +726,7 @@ def draw_win(screen, score, font, small_font, frame_count, bird_y):
     congrats_text = small_font.render("Congratulations!", True, GOLD)
     screen.blit(congrats_text, (WIDTH // 2 - congrats_text.get_width() // 2, HEIGHT // 2 + 20))
 
-    restart_text = small_font.render("Press ENTER for new game", True, WHITE)
+    restart_text = small_font.render("Tap for new game", True, WHITE)
     screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2 + 60))
 
 
@@ -746,14 +747,14 @@ def reset_game():
         level=get_level(0),
         level_banner_timer=0,
         confetti=[],
+        death_time=0,
     )
 
 
 # --- Event Handling ---
 
 def handle_events(state):
-    """Process pygame events. Returns (new_state_or_None, toggle_fullscreen)."""
-    toggle_fullscreen = False
+    """Process pygame events. Returns new_state_or_None."""
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             pygame.quit()
@@ -762,19 +763,15 @@ def handle_events(state):
             pygame.quit()
             sys.exit()
 
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
-            toggle_fullscreen = True
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+        is_flap = ((event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE)
+                   or event.type == pygame.MOUSEBUTTONDOWN)
+        if is_flap:
             if state.game_active:
                 state.bird_vel = JUMP_VELOCITY
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
-            if not state.game_active:
-                return reset_game(), toggle_fullscreen
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if state.game_active:
-                state.bird_vel = JUMP_VELOCITY
+            elif pygame.time.get_ticks() - state.death_time >= 1000:
+                return reset_game()
 
-    return None, toggle_fullscreen
+    return None
 
 
 # --- Game Update ---
@@ -825,10 +822,12 @@ def update_game(state, burp_sound):
     if state.score >= WIN_SCORE:
         state.game_active = False
         state.won = True
+        state.death_time = pygame.time.get_ticks()
 
     # Collision
     if check_collision(state.bird_y, state.pipes, lvl.gap):
         state.game_active = False
+        state.death_time = pygame.time.get_ticks()
 
 
 # --- Main ---
@@ -836,12 +835,7 @@ def update_game(state, burp_sound):
 def main():
     pygame.mixer.pre_init(44100, -16, 1, 512)
     pygame.init()
-    display_info = pygame.display.Info()
-    full_w, full_h = display_info.current_w, display_info.current_h
-
-    is_fullscreen = False
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    game_surface = pygame.Surface((WIDTH, HEIGHT))
     pygame.display.set_caption("Birdy & Llama")
     clock = pygame.time.Clock()
 
@@ -852,46 +846,27 @@ def main():
     state = reset_game()
 
     while True:
-        new_state, toggle_fullscreen = handle_events(state)
+        new_state = handle_events(state)
         if new_state is not None:
             state = new_state
-
-        if toggle_fullscreen:
-            is_fullscreen = not is_fullscreen
-            if is_fullscreen:
-                screen = pygame.display.set_mode((full_w, full_h), pygame.FULLSCREEN)
-                pygame.mouse.set_visible(False)
-            else:
-                screen = pygame.display.set_mode((WIDTH, HEIGHT))
-                pygame.mouse.set_visible(True)
 
         state.frame_count += 1
 
         update_game(state, burp_sound)
 
-        # Draw to game surface
         lvl = state.level
-        draw_background(game_surface, state.flowers, state.score, state.clouds, state.trees)
-        draw_llama(game_surface, state.frame_count)
-        draw_confetti(game_surface, state.confetti)
-        draw_pipes(game_surface, state.pipes, lvl.gap)
-        draw_bird(game_surface, state.bird_y, state.bird_vel, state.frame_count)
-        draw_score(game_surface, state.score, state.level, font, small_font)
+        draw_background(screen, state.flowers, state.score, state.clouds, state.trees)
+        draw_llama(screen, state.frame_count)
+        draw_confetti(screen, state.confetti)
+        draw_pipes(screen, state.pipes, lvl.gap)
+        draw_bird(screen, state.bird_y, state.bird_vel, state.frame_count)
+        draw_score(screen, state.score, state.level, font, small_font)
 
         if not state.game_active:
             if state.won:
-                draw_win(game_surface, state.score, font, small_font, state.frame_count, state.bird_y)
+                draw_win(screen, state.score, font, small_font, state.frame_count, state.bird_y)
             else:
-                draw_game_over(game_surface, state.score, font, small_font)
-
-        # Scale game surface to screen
-        screen_w, screen_h = screen.get_size()
-        scale = min(screen_w / WIDTH, screen_h / HEIGHT)
-        scaled_w = int(WIDTH * scale)
-        scaled_h = int(HEIGHT * scale)
-        scaled = pygame.transform.scale(game_surface, (scaled_w, scaled_h))
-        screen.fill(BLACK)
-        screen.blit(scaled, ((screen_w - scaled_w) // 2, (screen_h - scaled_h) // 2))
+                draw_game_over(screen, state.score, font, small_font)
 
         pygame.display.flip()
         clock.tick(FPS)
