@@ -3,6 +3,7 @@ import sys
 import random
 import math
 import array
+from dataclasses import dataclass
 
 # --- Constants ---
 WIDTH, HEIGHT = 600, 600
@@ -33,11 +34,64 @@ PIPE_CAP_HEIGHT = 20
 PIPE_CAP_OVERHANG = 4
 PIPE_MIN_Y = 80
 PIPE_MAX_Y = HEIGHT - GROUND_HEIGHT - 80
+MIN_PIPE_DISTANCE = 200
 
 POINTS_PER_LEVEL = 3
 LEVEL_BANNER_DURATION = 120  # frames to show "NEXT LEVEL" banner
 CONFETTI_COLORS = [(255, 50, 50), (50, 255, 50), (50, 100, 255), (255, 255, 50),
                    (255, 100, 200), (50, 255, 255), (255, 150, 30)]
+
+# Animation speeds
+WING_FLAP_SPEED = 0.3
+HAIR_SWAY_SPEED = 0.15
+LEG_WALK_SPEED = 0.25
+EAR_SWAY_SPEED = 0.1
+TAIL_SWAY_SPEED = 0.15
+WIN_PULSE_SPEED = 0.1
+
+# Llama
+LLAMA_SCALE = 1.8
+LLAMA_BODY = (210, 190, 160)
+LLAMA_DARK = (170, 150, 120)
+
+# Flowers
+FLOWER_COLORS = [(255, 80, 80), (255, 160, 200), (255, 255, 100), (200, 130, 255), (255, 180, 50)]
+STEM_GREEN = (50, 150, 30)
+
+WIN_SCORE = 30
+GOLD = (255, 215, 0)
+
+
+# --- Dataclasses ---
+
+@dataclass
+class LevelConfig:
+    num: int
+    name: str
+    gravity: float
+    max_fall: float
+    gap: int
+    speed: float
+    spawn: int
+
+
+@dataclass
+class GameState:
+    bird_y: float
+    bird_vel: float
+    pipes: list
+    score: int
+    frame_count: int
+    game_active: bool
+    won: bool
+    flowers: list
+    clouds: list
+    level: LevelConfig
+    level_banner_timer: int
+    confetti: list
+
+
+# --- Audio ---
 
 def create_burp_sound():
     """Generate a burp sound programmatically."""
@@ -87,33 +141,28 @@ def create_burp_sound():
     return sound
 
 
+# --- Level ---
+
 def get_level(score):
     """Return the level config for the given score. New level every 3 points."""
     lvl_num = score // POINTS_PER_LEVEL  # 0, 1, 2, ... 9
     t = min(lvl_num / 9.0, 1.0)  # progress 0.0 to 1.0 across 10 levels
-    return {
-        "num": lvl_num + 1,
-        "name": f"Level {lvl_num + 1}",
-        "gravity": 0.25 + 0.17 * t,
-        "max_fall": 7 + 3 * t,
-        "gap": int(230 - 65 * t),
-        "speed": 2.0 + 1.8 * t,
-        "spawn": int(130 - 50 * t),
-    }
-
-# Flowers
-FLOWER_COLORS = [(255, 80, 80), (255, 160, 200), (255, 255, 100), (200, 130, 255), (255, 180, 50)]
-STEM_GREEN = (50, 150, 30)
-
-# Llama
-LLAMA_BODY = (210, 190, 160)
-LLAMA_DARK = (170, 150, 120)
+    return LevelConfig(
+        num=lvl_num + 1,
+        name=f"Level {lvl_num + 1}",
+        gravity=0.25 + 0.17 * t,
+        max_fall=7 + 3 * t,
+        gap=int(230 - 65 * t),
+        speed=2.0 + 1.8 * t,
+        spawn=int(130 - 50 * t),
+    )
 
 
-# --- Drawing functions ---
+# --- Flowers ---
 
 def make_flower(x):
-    return [float(x), random.choice(FLOWER_COLORS), random.randint(4, 7), random.randint(12, 22)]
+    return {"x": float(x), "color": random.choice(FLOWER_COLORS),
+            "petals": random.randint(4, 7), "stem_h": random.randint(12, 22)}
 
 
 def generate_flowers():
@@ -122,12 +171,14 @@ def generate_flowers():
 
 def update_flowers(flowers, speed):
     for f in flowers:
-        f[0] -= speed
-    flowers[:] = [f for f in flowers if f[0] > -20]
+        f["x"] -= speed
+    flowers[:] = [f for f in flowers if f["x"] > -20]
     # Spawn new flowers on the right
-    if not flowers or max(f[0] for f in flowers) < WIDTH - 20:
+    if not flowers or max(f["x"] for f in flowers) < WIDTH - 20:
         flowers.append(make_flower(WIDTH + random.randint(10, 40)))
 
+
+# --- Clouds ---
 
 def lerp_color(c1, c2, t):
     """Linearly interpolate between two RGB colors. t=0 gives c1, t=1 gives c2."""
@@ -176,6 +227,8 @@ def draw_clouds(screen, clouds, alpha):
         screen.blit(surf, (cx, cy))
 
 
+# --- Drawing ---
+
 def draw_background(screen, flowers, score, clouds):
     screen.fill(SKY_BLUE)
 
@@ -193,7 +246,10 @@ def draw_background(screen, flowers, score, clouds):
 
     fy = HEIGHT - GROUND_HEIGHT
     for flower in flowers:
-        fx, color, size, stem_h = int(flower[0]), flower[1], flower[2], flower[3]
+        fx = int(flower["x"])
+        color = flower["color"]
+        size = flower["petals"]
+        stem_h = flower["stem_h"]
         # Stem
         pygame.draw.line(screen, STEM_GREEN, (fx, fy), (fx, fy - stem_h), 2)
         # Petals
@@ -210,7 +266,7 @@ def draw_bird(screen, bird_y, bird_vel, frame_count):
     by = int(bird_y)
 
     # Wings (drawn behind body)
-    flap = math.sin(frame_count * 0.3) * 14
+    flap = math.sin(frame_count * WING_FLAP_SPEED) * 14
     f = int(flap)
 
     wing_dark = (200, 160, 30)
@@ -255,7 +311,7 @@ def draw_bird(screen, bird_y, bird_vel, frame_count):
     # Hair (orange tufts on top)
     hair_color = (240, 120, 20)
     for i, (dx, length, curve) in enumerate([(-6, 14, -3), (-1, 16, 1), (5, 13, 4)]):
-        sway = int(math.sin(frame_count * 0.15 + i) * 2)
+        sway = int(math.sin(frame_count * HAIR_SWAY_SPEED + i) * 2)
         base_x = BIRD_X + dx
         base_y = by - BIRD_RADIUS + 3
         tip_x = base_x + curve + sway
@@ -289,7 +345,7 @@ def draw_bird(screen, bird_y, bird_vel, frame_count):
 
 def spawn_confetti(confetti):
     """Spawn confetti particles from the llama's mouth (burp!)."""
-    s = 1.8
+    s = LLAMA_SCALE
     lx = BIRD_X
     ground_y = HEIGHT - GROUND_HEIGHT
     head_x = lx + int(21 * s)
@@ -337,12 +393,12 @@ def draw_confetti(screen, confetti):
 
 
 def draw_llama(screen, frame_count):
-    s = 1.8  # scale factor
+    s = LLAMA_SCALE
     lx = BIRD_X
     ground_y = HEIGHT - GROUND_HEIGHT
 
     # Leg animation
-    leg_offset = int(math.sin(frame_count * 0.25) * 8 * s)
+    leg_offset = int(math.sin(frame_count * LEG_WALK_SPEED) * 8 * s)
 
     # Legs (4 legs, animated in pairs)
     leg_color = LLAMA_DARK
@@ -376,7 +432,7 @@ def draw_llama(screen, frame_count):
     pygame.draw.ellipse(screen, LLAMA_BODY, (head_x + int(2 * s), head_y + int(2 * s), int(14 * s), int(10 * s)))
 
     # Ears (taller, more pointy with inner color)
-    ear_sway = int(math.sin(frame_count * 0.1) * 1)
+    ear_sway = int(math.sin(frame_count * EAR_SWAY_SPEED) * 1)
     # Left ear
     ear1 = [(head_x - int(1 * s), head_y - int(1 * s)),
             (head_x - int(4 * s), head_y - int(14 * s) + ear_sway),
@@ -413,17 +469,16 @@ def draw_llama(screen, frame_count):
                      (head_x + int(14 * s), head_y + int(8 * s)), 2)
 
     # Tail (little tuft)
-    tail_sway = int(math.sin(frame_count * 0.15) * 4 * s)
+    tail_sway = int(math.sin(frame_count * TAIL_SWAY_SPEED) * 4 * s)
     pygame.draw.line(screen, LLAMA_DARK, (lx - int(16 * s), ground_y - int(30 * s)), (lx - int(24 * s) + tail_sway, ground_y - int(38 * s)), lw)
     pygame.draw.circle(screen, LLAMA_BODY, (lx - int(24 * s) + tail_sway, ground_y - int(40 * s)), int(4 * s))
 
 
+# --- Pipes ---
+
 def create_pipe():
     gap_y = random.randint(PIPE_MIN_Y, PIPE_MAX_Y)
     return {"x": float(WIDTH), "gap_y": float(gap_y), "scored": False}
-
-
-MIN_PIPE_DISTANCE = 200  # minimum pixel gap between pipes
 
 
 def update_pipes(pipes, frame_count, speed, spawn_interval):
@@ -514,15 +569,25 @@ def update_score(pipes, score):
     return score
 
 
-def draw_score(screen, score, font):
-    text = font.render(str(score), True, WHITE)
-    outline = font.render(str(score), True, BLACK)
-    tx = WIDTH // 2 - text.get_width() // 2
-    ty = 40
-    for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2)]:
-        screen.blit(outline, (tx + dx, ty + dy))
-    screen.blit(text, (tx, ty))
+def draw_outlined_text(screen, text, font, x, y, color, outline_color, offset=2):
+    """Draw text with an outline by rendering the outline color offset in 4 directions."""
+    outline = font.render(text, True, outline_color)
+    main = font.render(text, True, color)
+    for dx, dy in [(-offset, 0), (offset, 0), (0, -offset), (0, offset)]:
+        screen.blit(outline, (x + dx, y + dy))
+    screen.blit(main, (x, y))
 
+
+def draw_score(screen, score, level, font, small_font):
+    text = str(score)
+    rendered = font.render(text, True, WHITE)
+    tx = WIDTH // 2 - rendered.get_width() // 2
+    draw_outlined_text(screen, text, font, tx, 48, WHITE, BLACK)
+
+    lvl_text = level.name
+    lvl_rendered = small_font.render(lvl_text, True, WHITE)
+    lx = WIDTH // 2 - lvl_rendered.get_width() // 2
+    draw_outlined_text(screen, lvl_text, small_font, lx, 15, WHITE, BLACK, offset=1)
 
 
 # --- Game Over ---
@@ -542,9 +607,7 @@ def draw_game_over(screen, score, font, small_font):
     screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2 + 30))
 
 
-WIN_SCORE = 30
-GOLD = (255, 215, 0)
-
+# --- Win ---
 
 def draw_ice_cream(screen, x, y, scale=1.0):
     """Draw an ice cream cone at (x, y) where y is the top of the scoops."""
@@ -583,7 +646,7 @@ def draw_win(screen, score, font, small_font, frame_count, bird_y):
     draw_ice_cream(screen, bird_ice_x, bird_ice_y, scale=0.8)
 
     # Draw ice cream for the llama (held near its mouth)
-    s = 1.8
+    s = LLAMA_SCALE
     lx = BIRD_X
     ground_y = HEIGHT - GROUND_HEIGHT
     head_x = lx + int(21 * s)
@@ -597,7 +660,7 @@ def draw_win(screen, score, font, small_font, frame_count, bird_y):
     screen.blit(overlay, (0, 0))
 
     # Pulsating gold title
-    pulse = 1.0 + 0.1 * math.sin(frame_count * 0.1)
+    pulse = 1.0 + 0.1 * math.sin(frame_count * WIN_PULSE_SPEED)
     win_font = pygame.font.SysFont(None, int(64 * pulse))
     win_text = win_font.render("YOU WIN!", True, GOLD)
     screen.blit(win_text, (WIDTH // 2 - win_text.get_width() // 2, HEIGHT // 2 - 90))
@@ -612,23 +675,108 @@ def draw_win(screen, score, font, small_font, frame_count, bird_y):
     screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2 + 60))
 
 
-# --- Reset ---
+# --- Game State ---
 
 def reset_game():
-    return {
-        "bird_y": HEIGHT / 2.5,
-        "bird_vel": 0.0,
-        "pipes": [],
-        "score": 0,
-        "frame_count": 0,
-        "game_active": True,
-        "won": False,
-        "flowers": generate_flowers(),
-        "clouds": [make_cloud(random.randint(0, WIDTH)) for _ in range(4)],
-        "level": get_level(0),
-        "level_banner_timer": 0,
-        "confetti": [],
-    }
+    return GameState(
+        bird_y=HEIGHT / 2.5,
+        bird_vel=0.0,
+        pipes=[],
+        score=0,
+        frame_count=0,
+        game_active=True,
+        won=False,
+        flowers=generate_flowers(),
+        clouds=[make_cloud(random.randint(0, WIDTH)) for _ in range(4)],
+        level=get_level(0),
+        level_banner_timer=0,
+        confetti=[],
+    )
+
+
+# --- Event Handling ---
+
+def handle_events(state):
+    """Process pygame events. Returns (new_state_or_None, toggle_fullscreen)."""
+    toggle_fullscreen = False
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            pygame.quit()
+            sys.exit()
+
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
+            toggle_fullscreen = True
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+            if state.game_active:
+                state.bird_vel = JUMP_VELOCITY
+            elif not state.won:
+                return reset_game(), toggle_fullscreen
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
+            if not state.game_active:
+                return reset_game(), toggle_fullscreen
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if state.game_active:
+                state.bird_vel = JUMP_VELOCITY
+            elif not state.won:
+                return reset_game(), toggle_fullscreen
+
+    return None, toggle_fullscreen
+
+
+# --- Game Update ---
+
+def update_game(state, burp_sound):
+    """Update bird physics, pipes, flowers, clouds, confetti, scoring, and collision."""
+    if not state.game_active:
+        return
+
+    lvl = state.level
+
+    # Update bird
+    state.bird_vel += lvl.gravity
+    if state.bird_vel > lvl.max_fall:
+        state.bird_vel = lvl.max_fall
+    state.bird_y += state.bird_vel
+
+    # Clamp bird position
+    if state.bird_y - BIRD_RADIUS < 0:
+        state.bird_y = float(BIRD_RADIUS)
+        state.bird_vel = 0
+    if state.bird_y + BIRD_RADIUS > HEIGHT - GROUND_HEIGHT:
+        state.bird_y = float(HEIGHT - GROUND_HEIGHT - BIRD_RADIUS)
+
+    # Update pipes
+    update_pipes(state.pipes, state.frame_count, lvl.speed, lvl.spawn)
+    update_flowers(state.flowers, lvl.speed)
+    update_clouds(state.clouds)
+
+    # Score
+    state.score = update_score(state.pipes, state.score)
+
+    # Level check
+    new_level = get_level(state.score)
+    if new_level.num != state.level.num:
+        state.level_banner_timer = LEVEL_BANNER_DURATION
+        state.level = new_level
+        spawn_confetti(state.confetti)
+        burp_sound.play()
+
+    if state.level_banner_timer > 0:
+        state.level_banner_timer -= 1
+
+    update_confetti(state.confetti)
+
+    # Win check
+    if state.score >= WIN_SCORE:
+        state.game_active = False
+        state.won = True
+
+    # Collision
+    if check_collision(state.bird_y, state.pipes, lvl.gap):
+        state.game_active = False
 
 
 # --- Main ---
@@ -638,9 +786,9 @@ def main():
     pygame.init()
     display_info = pygame.display.Info()
     full_w, full_h = display_info.current_w, display_info.current_h
-    screen = pygame.display.set_mode((full_w, full_h), pygame.FULLSCREEN)
-    pygame.event.set_grab(True)
-    pygame.mouse.set_visible(False)
+
+    is_fullscreen = False
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
     game_surface = pygame.Surface((WIDTH, HEIGHT))
     pygame.display.set_caption("Flappy Bird")
     clock = pygame.time.Clock()
@@ -652,98 +800,46 @@ def main():
     state = reset_game()
 
     while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                pygame.quit()
-                sys.exit()
+        new_state, toggle_fullscreen = handle_events(state)
+        if new_state is not None:
+            state = new_state
 
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                if state["game_active"]:
-                    state["bird_vel"] = JUMP_VELOCITY
-                elif not state["won"]:
-                    state = reset_game()
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
-                if not state["game_active"]:
-                    state = reset_game()
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if state["game_active"]:
-                    state["bird_vel"] = JUMP_VELOCITY
-                elif not state["won"]:
-                    state = reset_game()
+        if toggle_fullscreen:
+            is_fullscreen = not is_fullscreen
+            if is_fullscreen:
+                screen = pygame.display.set_mode((full_w, full_h), pygame.FULLSCREEN)
+                pygame.mouse.set_visible(False)
+            else:
+                screen = pygame.display.set_mode((WIDTH, HEIGHT))
+                pygame.mouse.set_visible(True)
 
-        if state["game_active"]:
-            lvl = state["level"]
+        state.frame_count += 1
 
-            # Update bird
-            state["bird_vel"] += lvl["gravity"]
-            if state["bird_vel"] > lvl["max_fall"]:
-                state["bird_vel"] = lvl["max_fall"]
-            state["bird_y"] += state["bird_vel"]
-
-            # Clamp bird position
-            if state["bird_y"] - BIRD_RADIUS < 0:
-                state["bird_y"] = float(BIRD_RADIUS)
-                state["bird_vel"] = 0
-            if state["bird_y"] + BIRD_RADIUS > HEIGHT - GROUND_HEIGHT:
-                state["bird_y"] = float(HEIGHT - GROUND_HEIGHT - BIRD_RADIUS)
-
-            # Update pipes
-            state["frame_count"] += 1
-            update_pipes(state["pipes"], state["frame_count"], lvl["speed"], lvl["spawn"])
-            update_flowers(state["flowers"], lvl["speed"])
-            update_clouds(state["clouds"])
-
-            # Score
-            state["score"] = update_score(state["pipes"], state["score"])
-
-            # Level check
-            new_level = get_level(state["score"])
-            if new_level["num"] != state["level"]["num"]:
-                state["level_banner_timer"] = LEVEL_BANNER_DURATION
-                state["level"] = new_level
-                spawn_confetti(state["confetti"])
-                burp_sound.play()
-
-            if state["level_banner_timer"] > 0:
-                state["level_banner_timer"] -= 1
-
-            update_confetti(state["confetti"])
-
-            # Win check
-            if state["score"] >= WIN_SCORE:
-                state["game_active"] = False
-                state["won"] = True
-
-            # Collision
-            if check_collision(state["bird_y"], state["pipes"], lvl["gap"]):
-                state["game_active"] = False
+        update_game(state, burp_sound)
 
         # Draw to game surface
-        lvl = state["level"]
-        draw_background(game_surface, state["flowers"], state["score"], state["clouds"])
-        draw_llama(game_surface, state["frame_count"])
-        draw_confetti(game_surface, state["confetti"])
-        draw_pipes(game_surface, state["pipes"], lvl["gap"])
-        draw_bird(game_surface, state["bird_y"], state["bird_vel"], state["frame_count"])
-        draw_score(game_surface, state["score"], font)
+        lvl = state.level
+        draw_background(game_surface, state.flowers, state.score, state.clouds)
+        draw_llama(game_surface, state.frame_count)
+        draw_confetti(game_surface, state.confetti)
+        draw_pipes(game_surface, state.pipes, lvl.gap)
+        draw_bird(game_surface, state.bird_y, state.bird_vel, state.frame_count)
+        draw_score(game_surface, state.score, state.level, font, small_font)
 
-        if not state["game_active"]:
-            if state["won"]:
-                draw_win(game_surface, state["score"], font, small_font, state["frame_count"], state["bird_y"])
-                state["frame_count"] += 1
+        if not state.game_active:
+            if state.won:
+                draw_win(game_surface, state.score, font, small_font, state.frame_count, state.bird_y)
             else:
-                draw_game_over(game_surface, state["score"], font, small_font)
+                draw_game_over(game_surface, state.score, font, small_font)
 
-        # Scale game surface to fullscreen
-        scale = min(full_w / WIDTH, full_h / HEIGHT)
+        # Scale game surface to screen
+        screen_w, screen_h = screen.get_size()
+        scale = min(screen_w / WIDTH, screen_h / HEIGHT)
         scaled_w = int(WIDTH * scale)
         scaled_h = int(HEIGHT * scale)
         scaled = pygame.transform.scale(game_surface, (scaled_w, scaled_h))
         screen.fill(BLACK)
-        screen.blit(scaled, ((full_w - scaled_w) // 2, (full_h - scaled_h) // 2))
+        screen.blit(scaled, ((screen_w - scaled_w) // 2, (screen_h - scaled_h) // 2))
 
         pygame.display.flip()
         clock.tick(FPS)
