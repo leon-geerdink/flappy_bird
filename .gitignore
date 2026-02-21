@@ -12,6 +12,7 @@ build/
 flappy_icon.png
 
 # macOS app bundle
+BirdyAndLlama.app/
 FlappyBird.app/
 
 # Claude

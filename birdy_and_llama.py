@@ -842,7 +842,7 @@ def main():
     is_fullscreen = False
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     game_surface = pygame.Surface((WIDTH, HEIGHT))
-    pygame.display.set_caption("Flappy Bird")
+    pygame.display.set_caption("Birdy & Llama")
     clock = pygame.time.Clock()
 
     font = pygame.font.SysFont(None, 64)

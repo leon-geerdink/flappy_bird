@@ -1,4 +1,4 @@
-"""Generate a Flappy Bird app icon."""
+"""Generate the Birdy & Llama app icon."""
 import struct
 import zlib
 

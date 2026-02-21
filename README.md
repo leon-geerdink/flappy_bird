@@ -1,6 +1,6 @@
-# Flappy Bird
+# Birdy & Llama
 
-A Flappy Bird clone built with Python and Pygame. The bird wears glasses, has hair tufts, and a llama companion runs along the ground. Level up every 3 points to hear the llama burp confetti. Reach score 30 to win and celebrate with ice cream.
+A Flappy Bird-style game built with Python and Pygame. The bird wears glasses, has hair tufts, and a llama companion runs along the ground. Level up every 4 points to hear the llama burp confetti. Reach score 40 to win and celebrate with ice cream.
 
 ## Requirements
 
@@ -10,10 +10,8 @@ A Flappy Bird clone built with Python and Pygame. The bird wears glasses, has ha
 ## Install and run
 
 ```bash
-git clone https://github.com/leon-geerdink/flappy_bird.git
-cd flappy_bird
 pipenv install
-pipenv run python flappy_bird.py
+pipenv run python birdy_and_llama.py
 ```
 
 ## Controls
