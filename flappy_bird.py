@@ -603,7 +603,7 @@ def draw_game_over(screen, score, font, small_font):
     score_text = small_font.render(f"Score: {score}", True, WHITE)
     screen.blit(score_text, (WIDTH // 2 - score_text.get_width() // 2, HEIGHT // 2 - 20))
 
-    restart_text = small_font.render("Press SPACE to restart", True, WHITE)
+    restart_text = small_font.render("Press ENTER to restart", True, WHITE)
     screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2 + 30))
 
 
@@ -712,16 +712,12 @@ def handle_events(state):
         if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
             if state.game_active:
                 state.bird_vel = JUMP_VELOCITY
-            elif not state.won:
-                return reset_game(), toggle_fullscreen
         if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
             if not state.game_active:
                 return reset_game(), toggle_fullscreen
         if event.type == pygame.MOUSEBUTTONDOWN:
             if state.game_active:
                 state.bird_vel = JUMP_VELOCITY
-            elif not state.won:
-                return reset_game(), toggle_fullscreen
 
     return None, toggle_fullscreen
 
